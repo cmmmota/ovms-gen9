@@ -1,0 +1,22 @@
+// Local policy for this repo: track the OVMS base image; deb runtime pins
+// move in lockstep with Immich's install script (see Dockerfile comment),
+// which Renovate cannot diff against, so they stay manual.
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["openvino/model_server"],
+      "groupName": "ovms base image",
+      "automerge": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "automerge": true,
+      "automergeType": "pr"
+    }
+  ],
+  "prConcurrentLimit": 5,
+  "schedule": ["before 9am on monday"]
+}

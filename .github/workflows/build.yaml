@@ -1,0 +1,77 @@
+---
+# Build ghcr.io/cmmmota/ovms-gen9 on push to main and manual dispatch.
+# No GPU on runners, so the smoke test is boot-level only: the binary must
+# print its version and the OpenCL ICD enumeration must not abort startup.
+# Real Gen9 GPU proof happens on sancho (k8s_homelab trial).
+
+name: Build image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - .github/workflows/build.yaml
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/cmmmota/ovms-gen9
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          base="$(sed -n 's|^FROM openvino/model_server:\([^ ]*\).*|\1|p' Dockerfile | head -1)"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Build (load, for smoke)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: local/ovms-gen9:smoke
+
+      - name: Smoke test
+        run: |
+          set -x
+          # Binary present and links its libraries.
+          docker run --rm --entrypoint /ovms/bin/ovms local/ovms-gen9:smoke --version
+          # ICD loader sees both runtimes (no crash on enumeration headless).
+          docker run --rm --entrypoint /ovms/bin/ovms local/ovms-gen9:smoke --help >/dev/null
+          # Legacy driver + runtime debs actually installed.
+          docker run --rm --entrypoint dpkg-query local/ovms-gen9:smoke \
+            -W -f '${Package} ${Version}\n' \
+            intel-opencl-icd-legacy1 intel-igc-core intel-igc-opencl intel-opencl-icd libigdgmm12
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.base }}-gen9.${{ steps.tags.outputs.date }}.${{ github.run_number }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.base.name=openvino/model_server:${{ steps.tags.outputs.base }}
