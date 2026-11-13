@@ -63,5 +63,11 @@ before committing to it.
 
 ## Image tags
 
-- `latest` — what the cluster pins by digest
-- `2026.4.1-gen9.<date>.<run>` — provenance tags, one per successful build
+Same scheme as `cmmmota/hermes-with-tools`, so the cluster can pin a semver tag
+by digest and Renovate can bump it:
+
+- `2026.4.1` — floats to the newest build on that OVMS base; k8s_homelab pins
+  this tag with a digest and Renovate bumps it when the base image moves
+- `2026.4.1-<sha>` — immutable, exact build; use when you want a deployment
+  that provably never moves
+- `<sha>` (short), `main`, `latest` — convenience/rolling

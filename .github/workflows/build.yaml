@@ -38,12 +38,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute tags
-        id: tags
+      - name: Read base image version
+        id: base
         run: |
-          base="$(sed -n 's|^FROM openvino/model_server:\([^ ]*\).*|\1|p' Dockerfile | head -1)"
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-          echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          # 2026.4.1-gpu -> 2026.4.1; the -gpu suffix would read as a semver
+          # prerelease and Renovate would ignore it.
+          version=$(sed -n -E 's|^FROM openvino/model_server:([^-@[:space:]]+).*|\1|p' Dockerfile | head -1)
+          if [ -z "$version" ]; then
+            echo "::error file=Dockerfile::Could not read openvino/model_server tag from FROM line"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          # Same scheme as cmmmota/hermes-with-tools: <version> floats to the
+          # newest build on that OVMS base; <version>-<sha> is immutable; the
+          # semver tags are what k8s_homelab pins with a digest.
+          tags: |
+            type=raw,value=${{ steps.base.outputs.version }},priority=1000
+            type=raw,value=${{ steps.base.outputs.version }}-{{sha}},priority=900
+            type=sha,prefix=,format=short
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.base.name=openvino/model_server:${{ steps.base.outputs.version }}-gpu
 
       - name: Build (load, for smoke)
         uses: docker/build-push-action@v6
@@ -69,9 +92,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ steps.tags.outputs.base }}-gen9.${{ steps.tags.outputs.date }}.${{ github.run_number }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.base.name=openvino/model_server:${{ steps.tags.outputs.base }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
