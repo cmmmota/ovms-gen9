@@ -36,8 +36,10 @@ if [[ ${#FILES[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# OVMS loads a --source_model on first request, which inflates run #1 badly.
-echo "priming model '$MODEL' (cold load not measured)..." >&2
+# OVMS downloads and loads the model at startup (see pod startup probe), but
+# the first real request still pays some Gen9 kernel-cache warmup, so prime it
+# once outside the measurements.
+echo "priming model '$MODEL' (warmup run not measured)..." >&2
 curl -fsS -o /dev/null "$URL/audio/transcriptions" -F "model=$MODEL" -F "file=@${FILES[0]}"
 
 for f in "${FILES[@]}"; do
