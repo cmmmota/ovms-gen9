@@ -20,6 +20,9 @@
 # since 2026.3, which is what the wyoming_openai bridge speaks.
 FROM openvino/model_server:2026.4.1-gpu
 
+# Base image ends as the unprivileged ovms user; dpkg needs root.
+USER root
+
 # install-intel-runtime.sh verbatim (dpkg -i of this set; the modern-IGC
 # packages are igc-*-2 and do not clash with the legacy igc-* ones).
 # renovate: datasource=github-releases depName=intel/compute-runtime
@@ -46,11 +49,22 @@ RUN curl -fSsLO https://github.com/intel/compute-runtime/releases/download/26.35
 RUN set -eux; \
     if getent passwd 1000 >/dev/null; then \
       squatter="$(getent passwd 1000 | cut -d: -f1)"; \
-      userdel "$squatter" || true; \
+      userdel -r "$squatter" || true; \
     fi; \
-    groupmod -o -g 1000 ovms || true; \
-    usermod -o -u 1000 -g 1000 ovms || true; \
-    chown -R ovms:ovms /home/ovms
+    if getent group 1000 >/dev/null; then \
+      groupdel "$(getent group 1000 | cut -d: -f1)" || true; \
+    fi; \
+    if getent group ovms >/dev/null; then \
+      groupmod -o -g 1000 ovms; \
+    else \
+      groupadd -g 1000 ovms; \
+    fi; \
+    if getent passwd ovms >/dev/null; then \
+      usermod -o -u 1000 -g 1000 ovms; \
+    else \
+      useradd -u 1000 -g 1000 -m -d /home/ovms -s /bin/bash ovms; \
+    fi; \
+    mkdir -p /models && chown ovms:ovms /home/ovms /models
 
 USER 1000:1000
 WORKDIR /models
